@@ -80,6 +80,7 @@ function widgetDescriptorMeta(widget: PizzazWidget) {
     "openai/toolInvocation/invoking": widget.invoking,
     "openai/toolInvocation/invoked": widget.invoked,
     "openai/widgetAccessible": true,
+    "openai/resultCanProduceWidget": true,
   } as const;
 }
 
@@ -350,6 +351,23 @@ async function handlePostMessage(
 const portEnv = Number(process.env.PORT ?? 8000);
 const port = Number.isFinite(portEnv) ? portEnv : 8000;
 
+const allowedHosts = ["ssh", ".pomerium.app", ".pomerium.io", "localhost"];
+
+function isHostAllowed(host: string | undefined): boolean {
+  if (!host) return false;
+
+  // Remove port from host if present
+  const hostname = host.split(":")[0];
+
+  // Check exact matches or domain suffix matches (for entries starting with ".")
+  return allowedHosts.some((allowed) => {
+    if (allowed.startsWith(".")) {
+      return hostname.endsWith(allowed) || hostname === allowed.slice(1);
+    }
+    return hostname === allowed;
+  });
+}
+
 const httpServer = createServer(
   async (req: IncomingMessage, res: ServerResponse) => {
     if (!req.url) {
@@ -357,7 +375,15 @@ const httpServer = createServer(
       return;
     }
 
-    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+    // Validate Host header
+    if (!isHostAllowed(req.headers.host)) {
+      res.writeHead(403).end("Forbidden: Invalid Host header");
+      return;
+    }
+
+    // Use localhost as base for URL parsing since we only need pathname/query
+    // The actual host validation happened above
+    const url = new URL(req.url, `http://localhost`);
 
     if (
       req.method === "OPTIONS" &&
